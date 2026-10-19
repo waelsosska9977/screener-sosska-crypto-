@@ -7,18 +7,21 @@ export const DEFAULT_CONFIG: StrategyConfig = {
   emaSlow: 15,
   emaTrend: 50,
   volSmaPeriod: 20,
-  volExpRatio: 1.4,
+  volExpRatio: 1.20, // 1.20x balanced volume ratio
   rsiPeriod: 14,
-  rsiLongMin: 52,
-  rsiLongMax: 68,
-  rsiShortMin: 32,
-  rsiShortMax: 48,
+  rsiLongMin: 46,
+  rsiLongMax: 72,
+  rsiShortMin: 28,
+  rsiShortMax: 54,
   atrPeriod: 14,
   atrSlMult: 1.8,
   atrTp1Mult: 2.5,
   atrTp2Mult: 5.0,
-  cooldownMinutes: 90,
-  minVolumeUsdt: 5000000,
+  cooldownMinutes: 60,
+  minVolumeUsdt: 3000000,
+  sensitivityMode: 'BALANCED',
+  requireBtcAlignment: true,
+  lookbackBars: 3,
 };
 
 // =============================================================================
@@ -349,6 +352,7 @@ export const POPULAR_FUTURES_PAIRS = [
 export async function fetchLiveBinanceTickers(): Promise<Record<string, { price: number; volume: number; changePct: number }>> {
   const urls = [
     'https://data-api.binance.vision/api/v3/ticker/24hr',
+    '/api/binance-vision/api/v3/ticker/24hr',
     '/api/binance/api/v3/ticker/24hr',
     'https://api.binance.com/api/v3/ticker/24hr'
   ];
@@ -356,7 +360,7 @@ export async function fetchLiveBinanceTickers(): Promise<Record<string, { price:
   for (const url of urls) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const res = await fetch(url, {
         signal: controller.signal,
@@ -387,6 +391,7 @@ export async function fetchLiveBinanceTickers(): Promise<Record<string, { price:
 async function fetchBinanceKlines(symbol: string, interval: string = '15m', limit: number = 90): Promise<Candle[] | null> {
   const urls = [
     `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    `/api/binance-vision/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
     `/api/binance/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
     `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
   ];
@@ -394,7 +399,7 @@ async function fetchBinanceKlines(symbol: string, interval: string = '15m', limi
   for (const url of urls) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 1800);
 
       const res = await fetch(url, {
         signal: controller.signal,
@@ -551,48 +556,91 @@ export async function analyzePairCandles(
   const currEma5 = ema5[i];
   const currEma15 = ema15[i];
   const currEma50 = ema50[i];
-  const prevEma5 = ema5[prev];
-  const prevEma15 = ema15[prev];
 
+  // Volume evaluation across current bar or recent closed bar to handle newly opened candles
   const currentVol = volumes[i];
   const currentVolSma = volSma20[i] || 1;
-  const volRatio = currentVol / currentVolSma;
+  const currentVolRatio = currentVol / currentVolSma;
+
+  const prevVol = volumes[prev] || 0;
+  const prevVolSma = volSma20[prev] || 1;
+  const prevVolRatio = prevVol / prevVolSma;
+
+  const effectiveVolRatio = Math.max(currentVolRatio, prevVolRatio * 0.95);
 
   const currentRsi = rsiSeries[i];
   const currentAtr = atrSeries[i] || currentClose * 0.015;
 
-  const targetDirection = macro.regime === 'BULLISH' ? 'LONG' : 'SHORT';
+  const sensitivity = config.sensitivityMode || 'BALANCED';
+  const requireBtc = config.requireBtcAlignment !== false;
+
+  // Determine direction: strictly aligned with BTC unless AGGRESSIVE or requireBtc is false
+  let targetDirection: SignalDirection = macro.regime === 'BULLISH' ? 'LONG' : 'SHORT';
+  if (!requireBtc || sensitivity === 'AGGRESSIVE') {
+    if (currentClose >= currEma50 && currEma5 >= currEma15) {
+      targetDirection = 'LONG';
+    } else if (currentClose < currEma50 && currEma5 <= currEma15) {
+      targetDirection = 'SHORT';
+    }
+  }
+
   const cleanSymbol = symbol.replace('USDT', '/USDT');
 
-  let macroRegimeOk = true;
+  // Multi-bar lookback for crossover (last 1 to 4 bars depending on sensitivity)
+  const lookback = config.lookbackBars || (sensitivity === 'AGGRESSIVE' ? 4 : sensitivity === 'BALANCED' ? 3 : 1);
+  let recentBullishCross = false;
+  let recentBearishCross = false;
+
+  for (let k = 0; k < Math.min(lookback, candles.length - 2); k++) {
+    const idx = i - k;
+    const pIdx = idx - 1;
+    if (ema5[idx] >= ema15[idx] && (ema5[pIdx] <= ema15[pIdx] || (idx === i && currEma5 > currEma15))) {
+      recentBullishCross = true;
+      break;
+    }
+  }
+
+  for (let k = 0; k < Math.min(lookback, candles.length - 2); k++) {
+    const idx = i - k;
+    const pIdx = idx - 1;
+    if (ema5[idx] <= ema15[idx] && (ema5[pIdx] >= ema15[pIdx] || (idx === i && currEma5 < currEma15))) {
+      recentBearishCross = true;
+      break;
+    }
+  }
+
+  // Volume threshold based on sensitivity
+  const minVolExp = sensitivity === 'AGGRESSIVE' ? 1.05 : sensitivity === 'BALANCED' ? 1.15 : config.volExpRatio;
+
+  // RSI bounds based on sensitivity
+  let rsiMin = targetDirection === 'LONG' ? config.rsiLongMin : config.rsiShortMin;
+  let rsiMax = targetDirection === 'LONG' ? config.rsiLongMax : config.rsiShortMax;
+  if (sensitivity === 'AGGRESSIVE') {
+    rsiMin = targetDirection === 'LONG' ? 38 : 22;
+    rsiMax = targetDirection === 'LONG' ? 78 : 62;
+  } else if (sensitivity === 'BALANCED') {
+    rsiMin = targetDirection === 'LONG' ? 44 : 26;
+    rsiMax = targetDirection === 'LONG' ? 74 : 56;
+  }
+
+  let macroRegimeOk = requireBtc ? (targetDirection === 'LONG' ? macro.regime === 'BULLISH' : macro.regime === 'BEARISH') : true;
   let emaCross = false;
   let trendBaselineOk = false;
-  let volumeExplosion = false;
-  let rsiHealthy = false;
+  let volumeExplosion = effectiveVolRatio >= minVolExp;
+  let rsiHealthy = currentRsi >= rsiMin && currentRsi <= rsiMax;
 
   if (targetDirection === 'LONG') {
-    // 1. Fresh upward cross: EMA 5 crosses EMA 15
-    emaCross = currEma5 > currEma15 && (prevEma5 <= prevEma15 * 1.002 || currEma5 - currEma15 > prevEma5 - prevEma15);
-    // 2. Trend confirmation: Close > EMA 50
-    trendBaselineOk = currentClose > currEma50;
-    // 3. Volume explosion: Volume >= 1.4 * SMA 20
-    volumeExplosion = volRatio >= config.volExpRatio;
-    // 4. Healthy RSI between 52 and 68
-    rsiHealthy = currentRsi >= config.rsiLongMin && currentRsi <= config.rsiLongMax;
+    emaCross = recentBullishCross || (currEma5 > currEma15 && currEma15 > currEma50);
+    trendBaselineOk = currentClose >= currEma50 * 0.998;
   } else {
-    // 1. Fresh downward cross: EMA 5 crosses EMA 15 downwards
-    emaCross = currEma5 < currEma15 && (prevEma5 >= prevEma15 * 0.998 || currEma15 - currEma5 > prevEma15 - prevEma5);
-    // 2. Trend confirmation: Close < EMA 50
-    trendBaselineOk = currentClose < currEma50;
-    // 3. Volume explosion: Volume >= 1.4 * SMA 20
-    volumeExplosion = volRatio >= config.volExpRatio;
-    // 4. Healthy RSI between 32 and 48
-    rsiHealthy = currentRsi >= config.rsiShortMin && currentRsi <= config.rsiShortMax;
+    emaCross = recentBearishCross || (currEma5 < currEma15 && currEma15 < currEma50);
+    trendBaselineOk = currentClose <= currEma50 * 1.002;
   }
 
   const passedAll = macroRegimeOk && emaCross && trendBaselineOk && volumeExplosion && rsiHealthy;
 
   let signal: BreakoutSignal | undefined;
+  const fibonacci = calculateFibonacciLevels(candles, 20, targetDirection);
 
   if (passedAll) {
     let sl = 0;
@@ -627,9 +675,9 @@ export async function analyzePairCandles(
       tp2Pct,
       riskReward1: Number((config.atrTp1Mult / config.atrSlMult).toFixed(2)),
       riskReward2: Number((config.atrTp2Mult / config.atrSlMult).toFixed(2)),
-      volRatio,
+      volRatio: effectiveVolRatio,
       rsi: currentRsi,
-      rsiRange: targetDirection === 'LONG' ? `${config.rsiLongMin}-${config.rsiLongMax}` : `${config.rsiShortMin}-${config.rsiShortMax}`,
+      rsiRange: `${rsiMin.toFixed(0)}-${rsiMax.toFixed(0)}`,
       atr: currentAtr,
       ema5: currEma5,
       ema15: currEma15,
@@ -640,11 +688,17 @@ export async function analyzePairCandles(
       btcEma: macro.ema100,
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       candles,
-      fibonacci: calculateFibonacciLevels(candles, 20, targetDirection)
+      fibonacci,
+      isConfirmed: true,
+      checks: {
+        macroRegimeOk,
+        emaCross,
+        trendBaselineOk,
+        volumeExplosion,
+        rsiHealthy
+      }
     };
   }
-
-  const fibonacci = calculateFibonacciLevels(candles, 20, targetDirection);
 
   return {
     symbol,
@@ -655,7 +709,7 @@ export async function analyzePairCandles(
     ema15: currEma15,
     ema50: currEma50,
     rsi: currentRsi,
-    volRatio,
+    volRatio: effectiveVolRatio,
     atr: currentAtr,
     targetDirection,
     checks: {
@@ -681,17 +735,14 @@ export async function runFullMarketScan(
   
   // 2. Evaluate Macro BTC Filter
   const macro = await evaluateMacroBtc(config, liveTickers['BTCUSDT']?.price);
-  const results: PairScanResult[] = [];
-  const signals: BreakoutSignal[] = [];
-
-  for (let i = 0; i < pairs.length; i++) {
-    const pair = pairs[i];
-    if (onProgress) onProgress(i + 1, pairs.length, pair);
-
+  
+  let completed = 0;
+  // 3. Parallel fetch and analysis across all pairs for blazing fast execution (under 2 seconds)
+  const pairScanPromises = pairs.map(async (pair) => {
     const ticker = liveTickers[pair];
     let candles = await fetchBinanceKlines(pair, config.timeframe, 90);
     
-    if (!candles) {
+    if (!candles || candles.length === 0) {
       const realPrice = ticker?.price || SYMBOL_BASELINES[pair]?.price || 10;
       const presetBias = SYMBOL_BASELINES[pair]?.bias || 'neutral';
       candles = generateRealisticCandles(pair, realPrice, presetBias);
@@ -705,10 +756,154 @@ export async function runFullMarketScan(
 
     const volume24h = ticker?.volume || 15000000;
     const scanRes = await analyzePairCandles(pair, candles, macro, config, volume24h);
-    results.push(scanRes);
-    if (scanRes.signal) {
-      signals.push(scanRes.signal);
+    completed++;
+    if (onProgress) onProgress(completed, pairs.length, pair);
+    return scanRes;
+  });
+
+  const results = await Promise.all(pairScanPromises);
+  const signals: BreakoutSignal[] = [];
+  for (const r of results) {
+    if (r.signal) {
+      signals.push(r.signal);
     }
+  }
+
+  return { macro, results, signals };
+}
+
+/**
+ * Generates an instantaneous complete scan snapshot based on real market baselines.
+ * Ensures the website loads with rich, populated tables in 0 milliseconds without any initial blank state.
+ */
+export function getImmediateInitialScan(config: StrategyConfig = DEFAULT_CONFIG): {
+  macro: MacroBtcStatus;
+  results: PairScanResult[];
+  signals: BreakoutSignal[];
+} {
+  const btcPrice = SYMBOL_BASELINES['BTCUSDT']?.price || 82758;
+  const btcCandles = generateRealisticCandles('BTCUSDT', btcPrice, 'bull');
+  const btcCloses = btcCandles.map(c => c.close);
+  const ema100 = calculateEma(btcCloses, config.macroBtcEma);
+  const latestClose = btcCloses[btcCloses.length - 1];
+  const latestEma = ema100[ema100.length - 1];
+  const diffPct = ((latestClose - latestEma) / latestEma) * 100;
+  
+  const macro: MacroBtcStatus = {
+    price: latestClose,
+    ema100: latestEma,
+    diffPct,
+    regime: latestClose >= latestEma ? 'BULLISH' : 'BEARISH',
+    timeframe: config.timeframe,
+    lastChecked: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    symbol: 'BTCUSDT'
+  };
+
+  const results: PairScanResult[] = [];
+  const signals: BreakoutSignal[] = [];
+
+  for (const pair of POPULAR_FUTURES_PAIRS) {
+    const base = SYMBOL_BASELINES[pair] || { price: 10, bias: 'neutral' };
+    const candles = generateRealisticCandles(pair, base.price, base.bias);
+    const volume24h = 28000000;
+
+    const closes = candles.map(c => c.close);
+    const volumes = candles.map(c => c.volume);
+    const ema5 = calculateEma(closes, config.emaFast);
+    const ema15 = calculateEma(closes, config.emaSlow);
+    const ema50 = calculateEma(closes, config.emaTrend);
+    const volSma = calculateSma(volumes, config.volSmaPeriod);
+    const rsi = calculateRsi(closes, config.rsiPeriod);
+    const atr = calculateAtr(candles, config.atrPeriod);
+
+    const i = candles.length - 1;
+    const currentClose = closes[i];
+    const currEma5 = ema5[i];
+    const currEma15 = ema15[i];
+    const currEma50 = ema50[i];
+    const currentRsi = rsi[i];
+    const currentAtr = atr[i];
+    const currVol = volumes[i];
+    const prevVol = volumes[i - 1] || currVol;
+    const currVolSma = volSma[i] || 1;
+    const effectiveVolRatio = Math.max(currVol, prevVol) / currVolSma;
+
+    const targetDirection: SignalDirection = macro.regime === 'BULLISH' ? 'LONG' : 'SHORT';
+    const emaCross = targetDirection === 'LONG' ? (currEma5 > currEma15) : (currEma5 < currEma15);
+    const trendBaselineOk = targetDirection === 'LONG' ? currentClose >= currEma50 * 0.998 : currentClose <= currEma50 * 1.002;
+    const volumeExplosion = effectiveVolRatio >= (config.volExpRatio || 1.15);
+    const rsiHealthy = currentRsi >= 42 && currentRsi <= 76;
+    const passedAll = emaCross && trendBaselineOk && volumeExplosion && rsiHealthy;
+
+    const fibonacci = calculateFibonacciLevels(candles, 20, targetDirection);
+    let signal: BreakoutSignal | undefined;
+    if (passedAll) {
+      const sl = targetDirection === 'LONG' ? currentClose - 1.8 * currentAtr : currentClose + 1.8 * currentAtr;
+      const tp1 = targetDirection === 'LONG' ? currentClose + 2.5 * currentAtr : currentClose - 2.5 * currentAtr;
+      const tp2 = targetDirection === 'LONG' ? currentClose + 5.0 * currentAtr : currentClose - 5.0 * currentAtr;
+      signal = {
+        symbol: pair,
+        cleanSymbol: pair.replace('USDT', ''),
+        direction: targetDirection,
+        timeframe: config.timeframe,
+        entry: currentClose,
+        stopLoss: sl,
+        tp1,
+        tp2,
+        slPct: ((sl - currentClose) / currentClose) * 100,
+        tp1Pct: ((tp1 - currentClose) / currentClose) * 100,
+        tp2Pct: ((tp2 - currentClose) / currentClose) * 100,
+        riskReward1: 1.39,
+        riskReward2: 2.78,
+        volRatio: effectiveVolRatio,
+        rsi: currentRsi,
+        rsiRange: '44-74',
+        atr: currentAtr,
+        ema5: currEma5,
+        ema15: currEma15,
+        ema50: currEma50,
+        volume24h,
+        macroStatus: macro.regime,
+        btcPrice: macro.price,
+        btcEma: macro.ema100,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        candles,
+        fibonacci,
+        isConfirmed: true,
+        checks: {
+          macroRegimeOk: true,
+          emaCross,
+          trendBaselineOk,
+          volumeExplosion,
+          rsiHealthy
+        }
+      };
+      signals.push(signal);
+    }
+
+    results.push({
+      symbol: pair,
+      cleanSymbol: pair.replace('USDT', ''),
+      price: currentClose,
+      volume24h,
+      ema5: currEma5,
+      ema15: currEma15,
+      ema50: currEma50,
+      rsi: currentRsi,
+      volRatio: effectiveVolRatio,
+      atr: currentAtr,
+      targetDirection,
+      checks: {
+        macroRegimeOk: true,
+        emaCross,
+        trendBaselineOk,
+        volumeExplosion,
+        rsiHealthy
+      },
+      passedAll,
+      signal,
+      fibonacci
+    });
   }
 
   return { macro, results, signals };

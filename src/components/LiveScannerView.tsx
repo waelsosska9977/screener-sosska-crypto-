@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { 
   Play, RefreshCw, TrendingUp, TrendingDown, CheckCircle2, 
-  XCircle, Clock, Eye, Copy, Check, Filter, Search, Zap, Compass 
+  XCircle, Clock, Eye, Copy, Check, Filter, Search, Zap, 
+  Compass, Send, Bot, AlertCircle, Settings2, Sliders, Volume2,
+  ShieldAlert, AlertTriangle
 } from 'lucide-react';
-import { MacroBtcStatus, PairScanResult, BreakoutSignal } from '../types/scanner';
+import { MacroBtcStatus, PairScanResult, BreakoutSignal, SensitivityMode } from '../types/scanner';
 import { MacroRegimeBanner } from './MacroRegimeBanner';
 import { formatPrice } from '../services/marketScanner';
 
@@ -15,7 +17,15 @@ interface LiveScannerViewProps {
   onRunScan: () => void;
   onSelectSignal: (signal: BreakoutSignal) => void;
   onCopyTelegram: (signal: BreakoutSignal) => void;
+  onSendTelegram?: (signal: BreakoutSignal) => void;
   lastScanTime: string | null;
+  sensitivityMode: SensitivityMode;
+  onChangeSensitivity: (mode: SensitivityMode) => void;
+  autoBotActive: boolean;
+  onToggleAutoBot: () => void;
+  scanIntervalSec: number;
+  onChangeScanInterval: (sec: number) => void;
+  onOpenTelegramTab?: () => void;
 }
 
 export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
@@ -26,11 +36,21 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
   onRunScan,
   onSelectSignal,
   onCopyTelegram,
-  lastScanTime
+  onSendTelegram,
+  lastScanTime,
+  sensitivityMode,
+  onChangeSensitivity,
+  autoBotActive,
+  onToggleAutoBot,
+  scanIntervalSec,
+  onChangeScanInterval,
+  onOpenTelegramTab
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'passed' | 'golden'>('all');
+  const [showRiskEducation, setShowRiskEducation] = useState(false);
 
   const isBullish = macro?.regime === 'BULLISH';
   const targetDir = isBullish ? 'LONG' : 'SHORT';
@@ -49,13 +69,115 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleSendTelegram = async (sig: BreakoutSignal) => {
+    if (!onSendTelegram) return;
+    setSendingId(sig.symbol);
+    try {
+      await onSendTelegram(sig);
+    } finally {
+      setTimeout(() => setSendingId(null), 1000);
+    }
+  };
+
   return (
     <div className="space-y-6 text-right">
       
       {/* 1. Macro Market Regime Status Banner */}
       <MacroRegimeBanner macro={macro} isLoading={isScanning} onRefresh={onRunScan} />
 
-      {/* 2. Strategy KPI Summary Grid */}
+      {/* 2. Bot Runner & Sensitivity Control Bar */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        
+        {/* Sensitivity Modes */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs text-neutral-400 font-medium ml-1">
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <span>حساسية اقتناص الإشارات:</span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-neutral-950 p-1 rounded-lg border border-neutral-800">
+            <button
+              onClick={() => onChangeSensitivity('AGGRESSIVE')}
+              className={`px-3 py-1 text-xs rounded-md font-semibold transition-all flex items-center gap-1 ${
+                sensitivityMode === 'AGGRESSIVE'
+                  ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title="يقتنص الصفقات الحية السريعة والارتدادات الذهبية بدون تفويت أي حركة"
+            >
+              <Zap className="w-3 h-3" />
+              <span>اقتناص نشط (Active)</span>
+            </button>
+
+            <button
+              onClick={() => onChangeSensitivity('BALANCED')}
+              className={`px-3 py-1 text-xs rounded-md font-semibold transition-all ${
+                sensitivityMode === 'BALANCED'
+                  ? 'bg-amber-400 text-neutral-950 shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title="توازن ممتاز بين عدد الإشارات ودقة الشروط (موصى به)"
+            >
+              متوازن (Balanced)
+            </button>
+
+            <button
+              onClick={() => onChangeSensitivity('CONSERVATIVE')}
+              className={`px-3 py-1 text-xs rounded-md font-semibold transition-all ${
+                sensitivityMode === 'CONSERVATIVE'
+                  ? 'bg-neutral-700 text-white shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+              title="شروط صارمة جداً (فوليوم 1.4x، تقاطع فوري، شمعة واحدة فقط)"
+            >
+              متحفظ صارم
+            </button>
+          </div>
+        </div>
+
+        {/* Live Auto-Bot Controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onToggleAutoBot}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg flex items-center gap-2 transition-all shadow-sm ${
+                autoBotActive 
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/30' 
+                  : 'bg-neutral-800 text-neutral-300 border border-neutral-700 hover:bg-neutral-700'
+              }`}
+            >
+              <Bot className={`w-3.5 h-3.5 ${autoBotActive ? 'text-emerald-400 animate-pulse' : 'text-neutral-400'}`} />
+              <span>{autoBotActive ? 'بوت المراقبة الحية: نشط 🟢' : 'تشغيل بوت المراقبة الآلي'}</span>
+            </button>
+
+            {autoBotActive && (
+              <select
+                value={scanIntervalSec}
+                onChange={e => onChangeScanInterval(Number(e.target.value))}
+                className="bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1 text-xs font-mono text-neutral-200 focus:outline-none"
+              >
+                <option value={30}>كل 30 ثانية</option>
+                <option value={60}>كل 1 دقيقة</option>
+                <option value={180}>كل 3 دقائق</option>
+                <option value={300}>كل 5 دقائق</option>
+              </select>
+            )}
+          </div>
+
+          {onOpenTelegramTab && (
+            <button
+              onClick={onOpenTelegramTab}
+              className="px-2.5 py-1.5 text-xs text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 rounded-lg transition-colors flex items-center gap-1"
+            >
+              <Send className="w-3 h-3" />
+              <span>إعدادات وتوصيل تيليجرام</span>
+            </button>
+          )}
+        </div>
+
+      </div>
+
+      {/* 3. Strategy KPI Summary Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
           <span className="text-xs font-medium text-neutral-400">حالة السوق الماكرو (Macro BTC)</span>
@@ -70,16 +192,16 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
         </div>
 
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
-          <span className="text-xs font-medium text-neutral-400">الاتجاه المسموح به حالياً</span>
+          <span className="text-xs font-medium text-neutral-400">الاتجاه المفضل للاقتناص</span>
           <div className="flex items-center gap-2 mt-1">
             <span className={`text-lg font-bold font-mono px-2 py-0.5 rounded ${
               isBullish ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
             }`}>
-              {targetDir} ONLY
+              {targetDir}
             </span>
           </div>
           <span className="text-[11px] text-neutral-500">
-            {isBullish ? 'صفقات شراء فقط وتجاهل الشورت' : 'صفقات بيع فقط وتجاهل الشراء'}
+            {isBullish ? 'أفضلية شراء مع الاتجاه الصاعد' : 'أفضلية بيع مع الاتجاه الهابط'}
           </span>
         </div>
 
@@ -88,7 +210,7 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
           <div className="text-lg font-bold text-white font-mono mt-1 tabular-nums">
             {results.length} أزواج نشطة
           </div>
-          <span className="text-[11px] text-neutral-500">Binance Live Prices & Futures</span>
+          <span className="text-[11px] text-neutral-500">Binance Vision Live Feed</span>
         </div>
 
         <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
@@ -104,7 +226,37 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Confirmed Signals Showcase (High Priority Visual Cards) */}
+      {/* 4. Troubleshooting Callout when 0 Signals Detected */}
+      {signals.length === 0 && (
+        <div className="bg-neutral-900/90 border border-neutral-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 text-neutral-300">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              لا توجد صفقات مطابقة في هذه اللحظة بالشروط المحددة. للاقتناص الأسرع، يمكنك تفعيل <strong>الوضع النشط (Active Mode)</strong> أو فحص وصول التنبيهات في تيليجرام.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {sensitivityMode !== 'AGGRESSIVE' && (
+              <button
+                onClick={() => onChangeSensitivity('AGGRESSIVE')}
+                className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors font-semibold"
+              >
+                تفعيل الوضع النشط ⚡
+              </button>
+            )}
+            {onOpenTelegramTab && (
+              <button
+                onClick={onOpenTelegramTab}
+                className="px-3 py-1 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition-colors"
+              >
+                فحص اتصال البوت
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Confirmed Signals Showcase (Visual Cards) */}
       {signals.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -114,7 +266,7 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
                 الإشارات المؤكدة المقتنصة الآن ({signals.length})
               </h3>
             </div>
-            <span className="text-xs text-neutral-400">جاهزة للإرسال إلى Telegram مع أهداف فيبوناتشي</span>
+            <span className="text-xs text-neutral-400">جاهزة للإرسال التلقائي أو الفوري إلى Telegram</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -155,6 +307,18 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1.5">
+                      {onSendTelegram && (
+                        <button
+                          onClick={() => handleSendTelegram(sig)}
+                          disabled={sendingId === sig.symbol}
+                          title="إرسال فوري إلى Telegram Bot"
+                          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-sky-500 hover:bg-sky-400 text-neutral-950 flex items-center gap-1 transition-colors disabled:opacity-50"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>{sendingId === sig.symbol ? '...' : 'إرسال للبوت'}</span>
+                        </button>
+                      )}
+
                       <button
                         onClick={() => handleCopy(sig)}
                         title="نسخ نص التنبيه بصيغة Markdown"
@@ -162,12 +326,13 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
                       >
                         {copiedId === sig.symbol ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                       </button>
+
                       <button
                         onClick={() => onSelectSignal(sig)}
                         className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 transition-colors font-sans"
                       >
                         <Compass className="w-3.5 h-3.5" />
-                        <span>تحليل الفيبوناتشي والشارت</span>
+                        <span>الشارت والفيبو</span>
                       </button>
                     </div>
                   </div>
@@ -234,7 +399,90 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
         </div>
       )}
 
-      {/* 4. Complete Pairs Matrix / Scanner Table */}
+      {/* 5.5 Risk Management & Unconfirmed Trades Educational Guide */}
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowRiskEducation(!showRiskEducation)}
+          className="w-full px-5 py-3.5 flex items-center justify-between text-right bg-gradient-to-r from-rose-950/20 via-neutral-900 to-amber-950/20 hover:bg-neutral-850 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-rose-500/10 text-rose-400 rounded-lg shrink-0 border border-rose-500/20">
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-2">
+                <span>لماذا تخسر إذا دخلت صفقات "غير مؤكدة"؟ (دليل الحماية وإدارة المخاطر)</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  هام جداً للمتداولين
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5">
+                اضغط هنا للتعرف على القواعد الرياضية والكمية التي تحميك من ضرب وقف الخسارة وفخاخ السيولة
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-bold text-amber-400 bg-neutral-800 px-2.5 py-1 rounded-lg">
+            {showRiskEducation ? 'إغلاق الشرح ▲' : 'عرض التشريح الكمي ▼'}
+          </span>
+        </button>
+
+        {showRiskEducation && (
+          <div className="p-5 border-t border-neutral-800 bg-neutral-950/60 text-xs space-y-4 animate-in fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 space-y-1.5">
+                <div className="font-bold text-rose-400 flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>1. فخاخ السيولة (Fakeouts)</span>
+                </div>
+                <p className="text-neutral-400 text-[11px] leading-relaxed">
+                  عندما يتحرك السعر دون انفجار فوليوم (&gt; 1.20x)، يكون التحرك وهمياً لاختطاف سيولة صغار المتداولين، وسرعان ما ينعكس السعر لضرب الوقف.
+                </p>
+              </div>
+
+              <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 space-y-1.5">
+                <div className="font-bold text-rose-400 flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>2. التذبذب العرضي الميت</span>
+                </div>
+                <p className="text-neutral-400 text-[11px] leading-relaxed">
+                  الدخول قبل تأكيد تقاطع EMA 5/15 يعني أن العملة لا تزال تتذبذب في نطاق ضيق بدون اتجاه واضح، مما يسبب خروجك بالخسارة دون تحقيق أهداف.
+                </p>
+              </div>
+
+              <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 space-y-1.5">
+                <div className="font-bold text-rose-400 flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>3. معاكسة اتجاه البيتكوين</span>
+                </div>
+                <p className="text-neutral-400 text-[11px] leading-relaxed">
+                  لو كان البيتكوين في مسار هابط أو تذبذب تحت EMA 100، فإن أي محاولة شراء لعملة بديلة محكوم عليها بالفشل لأن البيتكوين يسحب السوق معه.
+                </p>
+              </div>
+
+              <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 space-y-1.5">
+                <div className="font-bold text-rose-400 flex items-center gap-1.5">
+                  <XCircle className="w-4 h-4 shrink-0" />
+                  <span>4. استنزاف العمولات والانزلاق</span>
+                </div>
+                <p className="text-neutral-400 text-[11px] leading-relaxed">
+                  الدخول المتكرر في صفقات عشوائية يقتطع رسوم تداول (0.06% للعقود الآجلة) مع الانزلاق السعري في كل ضربة وقف، مما يؤدي لتآكل المحفظة بسرعة.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-emerald-950/20 border border-emerald-900/40 p-3 rounded-xl flex items-center justify-between gap-3 text-[11px]">
+              <div className="flex items-center gap-2 text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>
+                  <strong>القاعدة الذهبية:</strong> لا تدخل إلا الصفقات التي يظهر أمامها <strong>"فرصة مؤكدة ⚡"</strong> وتتوافر فيها الشروط الخمسة كاملة، أو فعّل <strong>وضع الاقتناص النشط (Active)</strong> لتسريع التقاط الفرص الحية بأمان.
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 6. Complete Pairs Matrix / Scanner Table */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
         {/* Table Controls */}
         <div className="px-6 py-4 border-b border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-950/60">
@@ -299,10 +547,10 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
                 <th className="py-3 px-4 font-medium">الاتجاه</th>
                 <th className="py-3 px-4 font-medium">تقاطع 5/15</th>
                 <th className="py-3 px-4 font-medium">EMA 50</th>
-                <th className="py-3 px-4 font-medium">الفوليوم (&ge; 1.4x)</th>
+                <th className="py-3 px-4 font-medium">الفوليوم</th>
                 <th className="py-3 px-4 font-medium">RSI (14)</th>
                 <th className="py-3 px-4 font-medium text-center">القرار</th>
-                <th className="py-3 px-4 font-medium text-left">شارت وفيبو</th>
+                <th className="py-3 px-4 font-medium text-left">شارت وتيليجرام</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-800/60 font-mono">
@@ -411,67 +659,90 @@ export const LiveScannerView: React.FC<LiveScannerViewProps> = ({
                       {/* Final Status */}
                       <td className="py-3 px-4 text-center">
                         {r.passedAll ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-neutral-950 font-sans">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-neutral-950 font-sans shadow-sm">
                             <Zap className="w-3 h-3 fill-neutral-950" />
                             <span>فرصة مؤكدة</span>
                           </span>
                         ) : (
-                          <span className="text-[11px] text-neutral-500 font-sans">
-                            مراقبة
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700/60 font-sans" title="شروط الاستراتيجية غير مكتملة - غير صالحة للتنفيذ">
+                            <Clock className="w-3 h-3 text-neutral-500" />
+                            <span>غير مؤكدة (مراقبة)</span>
                           </span>
                         )}
                       </td>
 
                       {/* Action */}
                       <td className="py-3 px-4 text-left">
-                        {r.signal ? (
-                          <button
-                            onClick={() => onSelectSignal(r.signal!)}
-                            className="text-xs text-amber-400 hover:text-amber-300 font-medium underline font-sans flex items-center gap-1"
-                          >
-                            <Compass className="w-3.5 h-3.5" />
-                            <span>فحص الفيبو</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              // Create an on-demand inspectable signal container for chart inspection
-                              const tempSignal: BreakoutSignal = {
-                                symbol: r.symbol,
-                                cleanSymbol: r.cleanSymbol,
-                                direction: r.targetDirection,
-                                timeframe: '15m',
-                                entry: r.price,
-                                stopLoss: isLongTarget ? r.price - 1.8 * r.atr : r.price + 1.8 * r.atr,
-                                tp1: isLongTarget ? r.price + 2.5 * r.atr : r.price - 2.5 * r.atr,
-                                tp2: isLongTarget ? r.price + 5.0 * r.atr : r.price - 5.0 * r.atr,
-                                slPct: -((1.8 * r.atr) / r.price) * 100,
-                                tp1Pct: ((2.5 * r.atr) / r.price) * 100,
-                                tp2Pct: ((5.0 * r.atr) / r.price) * 100,
-                                riskReward1: 1.39,
-                                riskReward2: 2.78,
-                                volRatio: r.volRatio,
-                                rsi: r.rsi,
-                                rsiRange: isLongTarget ? '52-68' : '32-48',
-                                atr: r.atr,
-                                ema5: r.ema5,
-                                ema15: r.ema15,
-                                ema50: r.ema50,
-                                volume24h: r.volume24h,
-                                macroStatus: macro?.regime || 'BULLISH',
-                                btcPrice: macro?.price || 82750,
-                                btcEma: macro?.ema100 || 81900,
-                                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                                candles: [],
-                                fibonacci: r.fibonacci
-                              };
-                              onSelectSignal(tempSignal);
-                            }}
-                            className="text-xs text-neutral-400 hover:text-white font-sans underline"
-                          >
-                            معاينة الفيبو
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {r.signal && onSendTelegram && (
+                            <button
+                              onClick={() => handleSendTelegram(r.signal!)}
+                              className="text-xs text-sky-400 hover:text-sky-300 font-medium font-sans flex items-center gap-1"
+                              title="إرسال إشارة تيليجرام"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>إرسال</span>
+                            </button>
+                          )}
+
+                          {r.signal ? (
+                            <button
+                              onClick={() => onSelectSignal(r.signal!)}
+                              className="text-xs text-amber-400 hover:text-amber-300 font-medium underline font-sans flex items-center gap-1"
+                            >
+                              <Compass className="w-3.5 h-3.5" />
+                              <span>فحص الفيبو</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                const reasons: string[] = [];
+                                if (!r.checks.macroRegimeOk) reasons.push('اتجاه البيتكوين العام الماكرو غير متوافق مع الاتجاه المستهدف.');
+                                if (!r.checks.emaCross) reasons.push('لم يحدث تقاطع مؤكد بين متوسط 5 ومتوسط 15 (تذبذب سعري غير اتجاهي).');
+                                if (!r.checks.trendBaselineOk) reasons.push(isLongTarget ? 'السعر يتداول أسفل خط اتجاه EMA 50.' : 'السعر يتداول أعلى خط اتجاه EMA 50.');
+                                if (!r.checks.volumeExplosion) reasons.push(`الفوليوم ضعيف (${r.volRatio.toFixed(2)}x) ولم يتجاوز متوسط 20 شمعة (غياب السيولة المؤسسية).`);
+                                if (!r.checks.rsiHealthy) reasons.push(`مؤشر القوة النسبية RSI (${r.rsi.toFixed(1)}) خارج النطاق الفني للزخم.`);
+
+                                const tempSignal: BreakoutSignal = {
+                                  symbol: r.symbol,
+                                  cleanSymbol: r.cleanSymbol,
+                                  direction: r.targetDirection,
+                                  timeframe: '15m',
+                                  entry: r.price,
+                                  stopLoss: isLongTarget ? r.price - 1.8 * r.atr : r.price + 1.8 * r.atr,
+                                  tp1: isLongTarget ? r.price + 2.5 * r.atr : r.price - 2.5 * r.atr,
+                                  tp2: isLongTarget ? r.price + 5.0 * r.atr : r.price - 5.0 * r.atr,
+                                  slPct: -((1.8 * r.atr) / r.price) * 100,
+                                  tp1Pct: ((2.5 * r.atr) / r.price) * 100,
+                                  tp2Pct: ((5.0 * r.atr) / r.price) * 100,
+                                  riskReward1: 1.39,
+                                  riskReward2: 2.78,
+                                  volRatio: r.volRatio,
+                                  rsi: r.rsi,
+                                  rsiRange: isLongTarget ? '48-72' : '28-54',
+                                  atr: r.atr,
+                                  ema5: r.ema5,
+                                  ema15: r.ema15,
+                                  ema50: r.ema50,
+                                  volume24h: r.volume24h,
+                                  macroStatus: macro?.regime || 'BULLISH',
+                                  btcPrice: macro?.price || 82750,
+                                  btcEma: macro?.ema100 || 81900,
+                                  timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                                  candles: [],
+                                  fibonacci: r.fibonacci,
+                                  isConfirmed: false,
+                                  checks: r.checks,
+                                  unconfirmedReasons: reasons
+                                };
+                                onSelectSignal(tempSignal);
+                              }}
+                              className="text-xs text-neutral-400 hover:text-white font-sans underline"
+                            >
+                              معاينة الفيبو
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

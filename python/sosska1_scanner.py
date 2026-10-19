@@ -113,8 +113,24 @@ CONFIG = {
 
     # Anti-Spam Cache
     "COOLDOWN_MINUTES": int(os.getenv("COOLDOWN_MINUTES", "90")),
-    "CACHE_FILE": "sosska1_cache.json"
+    "CACHE_FILE": "sosska1_cache.json",
+
+    # Sensitivity Mode: BALANCED (default), AGGRESSIVE (high frequency), CONSERVATIVE (strict)
+    "SENSITIVITY_MODE": os.getenv("SENSITIVITY_MODE", "BALANCED")
 }
+
+# Auto-load config.json if present (exported from web app)
+if os.path.exists("config.json"):
+    try:
+        with open("config.json", "r", encoding="utf-8") as _f:
+            _ucfg = json.load(_f)
+            if _ucfg.get("botToken") and not CONFIG["TELEGRAM_BOT_TOKEN"]:
+                CONFIG["TELEGRAM_BOT_TOKEN"] = _ucfg["botToken"]
+            if _ucfg.get("chatId") and not CONFIG["TELEGRAM_CHAT_ID"]:
+                CONFIG["TELEGRAM_CHAT_ID"] = _ucfg["chatId"]
+            logger.info("Loaded Telegram credentials from local config.json")
+    except Exception as _e:
+        logger.warning(f"Failed to read config.json: {_e}")
 
 
 def fmt_price(val: float) -> str:
@@ -137,7 +153,7 @@ def fmt_price(val: float) -> str:
 # TELEGRAM NOTIFIER
 # =============================================================================
 class TelegramNotifier:
-    """Delivers cleanly formatted markdown alerts to Telegram."""
+    """Delivers cleanly formatted markdown alerts to Telegram with helpful diagnostic logging."""
 
     def __init__(self, token: str, chat_id: str):
         self.token = token.strip()
@@ -150,7 +166,7 @@ class TelegramNotifier:
 
     def send_alert(self, text: str) -> bool:
         if not self.is_ready:
-            logger.warning("[Telegram] Missing Bot Token or Chat ID. Alert skipped.")
+            logger.warning("[Telegram] Missing Bot Token or Chat ID! Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env or config.json.")
             return False
 
         payload = {
@@ -163,13 +179,23 @@ class TelegramNotifier:
         try:
             res = requests.post(self.api_url, json=payload, timeout=10)
             if res.status_code == 200:
-                logger.info("[Telegram] Alert sent successfully.")
+                logger.info("[Telegram] Alert sent successfully to chat.")
                 return True
             else:
-                logger.error(f"[Telegram] Error {res.status_code}: {res.text}")
+                body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+                desc = body.get("description", res.text)
+                
+                if res.status_code == 403:
+                    logger.error("[Telegram 403] BOT NOT STARTED: The recipient has NOT started a chat with this bot! Please open Telegram, search for your bot, and press 'START' or send /start.")
+                elif res.status_code == 400 and "chat not found" in desc.lower():
+                    logger.error(f"[Telegram 400] CHAT NOT FOUND: Chat ID '{self.chat_id}' was not found. If this is a channel/group, make sure the bot is an Administrator with 'Post Messages' permission.")
+                elif res.status_code == 401:
+                    logger.error("[Telegram 401] INVALID BOT TOKEN: Please verify the token obtained from @BotFather.")
+                else:
+                    logger.error(f"[Telegram Error {res.status_code}]: {desc}")
                 return False
         except Exception as err:
-            logger.error(f"[Telegram] Connection failure: {err}")
+            logger.error(f"[Telegram Connection Failure]: {err}")
             return False
 
     def build_signal_message(self, sig: Dict[str, Any]) -> str:
@@ -440,7 +466,37 @@ class Sosska1Scanner:
             if vol_sma20 <= 0 or np.isnan(atr) or atr <= 0:
                 return None
 
-            vol_ratio = volume / vol_sma20
+            # Multi-bar volume & sensitivity logic
+            prev_vol_ratio = (prev["volume"] / prev["vol_sma20"]) if prev.get("vol_sma20", 0) > 0 else 0
+            effective_vol_ratio = max(vol_ratio, prev_vol_ratio * 0.95)
+
+            sensitivity = CONFIG.get("SENSITIVITY_MODE", "BALANCED").upper()
+            if sensitivity == "AGGRESSIVE":
+                min_vol = 1.05
+                rsi_l_min, rsi_l_max = 38.0, 78.0
+                rsi_s_min, rsi_s_max = 22.0, 62.0
+                lookback = 4
+            elif sensitivity == "BALANCED":
+                min_vol = 1.15
+                rsi_l_min, rsi_l_max = 44.0, 74.0
+                rsi_s_min, rsi_s_max = 26.0, 56.0
+                lookback = 3
+            else:
+                min_vol = CONFIG["VOL_EXP_RATIO"]
+                rsi_l_min, rsi_l_max = CONFIG["RSI_LONG_MIN"], CONFIG["RSI_LONG_MAX"]
+                rsi_s_min, rsi_s_max = CONFIG["RSI_SHORT_MIN"], CONFIG["RSI_SHORT_MAX"]
+                lookback = 1
+
+            # Check recent crossover across lookback bars
+            recent_cross_up = any(
+                df["ema5"].iloc[-k] >= df["ema15"].iloc[-k] and df["ema5"].iloc[-k-1] <= df["ema15"].iloc[-k-1]
+                for k in range(1, min(lookback + 1, len(df) - 1))
+            ) or (curr["ema5"] > curr["ema15"] and curr["ema15"] > curr["ema50"])
+
+            recent_cross_down = any(
+                df["ema5"].iloc[-k] <= df["ema15"].iloc[-k] and df["ema5"].iloc[-k-1] >= df["ema15"].iloc[-k-1]
+                for k in range(1, min(lookback + 1, len(df) - 1))
+            ) or (curr["ema5"] < curr["ema15"] and curr["ema15"] < curr["ema50"])
 
             # Compute Auto Fibonacci Retracement Levels (fib_len = 20)
             fib_len = 20
@@ -459,19 +515,12 @@ class Sosska1Scanner:
             # -------------------------------------------------------------
             # CONDITION CHECK: LONG
             # -------------------------------------------------------------
-            if regime == "BULLISH":
-                # 1. Fresh upward cross: EMA 5 crosses EMA 15
-                ema_cross_up = (curr["ema5"] > curr["ema15"]) and (
-                    prev["ema5"] <= prev["ema15"] * 1.0015 or (curr["ema5"] - curr["ema15"]) > (prev["ema5"] - prev["ema15"])
-                )
-                # 2. Trend confirmation: Close > EMA 50
-                price_trend_ok = close > curr["ema50"]
-                # 3. Volume explosion: Volume >= 1.4 * SMA(Volume, 20)
-                vol_ok = vol_ratio >= CONFIG["VOL_EXP_RATIO"]
-                # 4. Healthy RSI between 52 and 68
-                rsi_ok = CONFIG["RSI_LONG_MIN"] <= rsi <= CONFIG["RSI_LONG_MAX"]
+            if regime == "BULLISH" or (sensitivity == "AGGRESSIVE" and curr["ema5"] > curr["ema15"] and close > curr["ema50"]):
+                price_trend_ok = close >= curr["ema50"] * 0.998
+                vol_ok = effective_vol_ratio >= min_vol
+                rsi_ok = rsi_l_min <= rsi <= rsi_l_max
 
-                if ema_cross_up and price_trend_ok and vol_ok and rsi_ok:
+                if recent_cross_up and price_trend_ok and vol_ok and rsi_ok:
                     # Risk Management Targets for LONG
                     sl = close - (CONFIG["ATR_SL_MULT"] * atr)
                     tp1 = close + (CONFIG["ATR_TP1_MULT"] * atr)
@@ -510,9 +559,9 @@ class Sosska1Scanner:
                         "sl_pct": sl_pct,
                         "tp1_pct": tp1_pct,
                         "tp2_pct": tp2_pct,
-                        "vol_ratio": vol_ratio,
+                        "vol_ratio": effective_vol_ratio,
                         "rsi": rsi,
-                        "rsi_range": f"{CONFIG['RSI_LONG_MIN']}-{CONFIG['RSI_LONG_MAX']}",
+                        "rsi_range": f"{rsi_l_min:.0f}-{rsi_l_max:.0f}",
                         "atr": atr,
                         "ema5": curr["ema5"],
                         "ema15": curr["ema15"],
@@ -527,19 +576,12 @@ class Sosska1Scanner:
             # -------------------------------------------------------------
             # CONDITION CHECK: SHORT
             # -------------------------------------------------------------
-            elif regime == "BEARISH":
-                # 1. Fresh downward cross: EMA 5 crosses EMA 15 downwards
-                ema_cross_down = (curr["ema5"] < curr["ema15"]) and (
-                    prev["ema5"] >= prev["ema15"] * 0.9985 or (curr["ema15"] - curr["ema5"]) > (prev["ema15"] - prev["ema5"])
-                )
-                # 2. Trend confirmation: Close < EMA 50
-                price_trend_ok = close < curr["ema50"]
-                # 3. Volume explosion: Volume >= 1.4 * SMA(Volume, 20)
-                vol_ok = vol_ratio >= CONFIG["VOL_EXP_RATIO"]
-                # 4. Healthy RSI between 32 and 48
-                rsi_ok = CONFIG["RSI_SHORT_MIN"] <= rsi <= CONFIG["RSI_SHORT_MAX"]
+            if regime == "BEARISH" or (sensitivity == "AGGRESSIVE" and curr["ema5"] < curr["ema15"] and close < curr["ema50"]):
+                price_trend_ok = close <= curr["ema50"] * 1.002
+                vol_ok = effective_vol_ratio >= min_vol
+                rsi_ok = rsi_s_min <= rsi <= rsi_s_max
 
-                if ema_cross_down and price_trend_ok and vol_ok and rsi_ok:
+                if recent_cross_down and price_trend_ok and vol_ok and rsi_ok:
                     # Risk Management Targets for SHORT
                     sl = close + (CONFIG["ATR_SL_MULT"] * atr)
                     tp1 = close - (CONFIG["ATR_TP1_MULT"] * atr)
@@ -563,9 +605,12 @@ class Sosska1Scanner:
                         "fib_618": short_fib_618,
                         "fib_500": short_fib_500,
                         "fib_382": short_fib_382,
+                        "fib_786": lo_fib + (fib_range * 0.786),
+                        "fib_886": lo_fib + (fib_range * 0.886),
+                        "fib_ext1272": lo_fib - (fib_range * 0.272),
                         "fib_ext1618": short_ext1618,
                         "buy_zone_desc": f"إغلاق الشورت عند قاع الضلع {fmt_price(lo_fib)} والامتداد {fmt_price(short_ext1618)}",
-                        "sell_zone_desc": f"منطقة بيع ذهبية هابطة عند Fib 0.618 ({fmt_price(short_fib_618)}) أو كسر {fmt_price(short_fib_382)}"
+                        "sell_zone_desc": f"الارتداد للنسبة الذهبية OTE ({fmt_price(short_fib_500)} إلى {fmt_price(short_fib_618)})"
                     }
 
                     return {
@@ -580,9 +625,9 @@ class Sosska1Scanner:
                         "sl_pct": sl_pct,
                         "tp1_pct": tp1_pct,
                         "tp2_pct": tp2_pct,
-                        "vol_ratio": vol_ratio,
+                        "vol_ratio": effective_vol_ratio,
                         "rsi": rsi,
-                        "rsi_range": f"{CONFIG['RSI_SHORT_MIN']}-{CONFIG['RSI_SHORT_MAX']}",
+                        "rsi_range": f"{rsi_s_min:.0f}-{rsi_s_max:.0f}",
                         "atr": atr,
                         "ema5": curr["ema5"],
                         "ema15": curr["ema15"],
@@ -591,7 +636,6 @@ class Sosska1Scanner:
                         "macro_status": "BEARISH (هابط)",
                         "btc_price": macro_details["btc_price"],
                         "btc_ema": macro_details["btc_ema100"],
-                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
                     }
 
             return None

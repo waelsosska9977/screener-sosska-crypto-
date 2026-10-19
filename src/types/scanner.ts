@@ -87,6 +87,15 @@ export interface BreakoutSignal {
   timestamp: string;
   candles: Candle[];
   fibonacci?: FibonacciLevels;
+  isConfirmed?: boolean;
+  checks?: {
+    macroRegimeOk: boolean;
+    emaCross: boolean;
+    trendBaselineOk: boolean;
+    volumeExplosion: boolean;
+    rsiHealthy: boolean;
+  };
+  unconfirmedReasons?: string[];
 }
 
 export interface PairScanResult {
@@ -115,6 +124,8 @@ export interface PairScanResult {
   cooldownRemainingMin?: number;
 }
 
+export type SensitivityMode = 'BALANCED' | 'AGGRESSIVE' | 'CONSERVATIVE';
+
 export interface StrategyConfig {
   macroBtcEma: number;
   timeframe: string;
@@ -134,11 +145,17 @@ export interface StrategyConfig {
   atrTp2Mult: number;
   cooldownMinutes: number;
   minVolumeUsdt: number;
+  sensitivityMode?: SensitivityMode;
+  requireBtcAlignment?: boolean;
+  lookbackBars?: number;
 }
 
 export interface TelegramConfig {
   botToken: string;
   chatId: string;
+  autoSendSignals?: boolean;
+  soundAlerts?: boolean;
+  notifyOnBtcRegimeChange?: boolean;
 }
 
 export interface CooldownItem {

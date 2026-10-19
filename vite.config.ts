@@ -28,6 +28,11 @@ export default defineConfig(() => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/binance/, ''),
         },
+        '/api/binance-vision': {
+          target: 'https://data-api.binance.vision',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/binance-vision/, ''),
+        },
       },
     },
   };

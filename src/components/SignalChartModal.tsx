@@ -1,5 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { X, TrendingUp, TrendingDown, Target, Shield, Copy, Check, BarChart2, Layers, Info, Code2, Compass } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { 
+  X, TrendingUp, TrendingDown, Target, Shield, Copy, Check, 
+  BarChart2, Layers, Info, Code2, Compass, Send,
+  AlertTriangle, CheckCircle2, XCircle, AlertOctagon 
+} from 'lucide-react';
 import { BreakoutSignal, FibonacciLevels } from '../types/scanner';
 import { calculateEma, calculateSma, calculateFibonacciLevels, formatPrice } from '../services/marketScanner';
 
@@ -7,20 +11,33 @@ interface SignalChartModalProps {
   signal: BreakoutSignal | null;
   onClose: () => void;
   onCopyTelegram: (signal: BreakoutSignal) => void;
+  onSendTelegram?: (signal: BreakoutSignal) => void;
 }
 
 export const SignalChartModal: React.FC<SignalChartModalProps> = ({
   signal,
   onClose,
-  onCopyTelegram
+  onCopyTelegram,
+  onSendTelegram
 }) => {
   const [copied, setCopied] = useState(false);
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
   const [copiedPine, setCopiedPine] = useState(false);
   const [showFib, setShowFib] = useState(true);
   const [showEma, setShowEma] = useState(true);
   const [showZones, setShowZones] = useState(true);
 
   if (!signal) return null;
+
+  const handleSendTelegram = async () => {
+    if (!onSendTelegram || !signal) return;
+    setIsSendingTelegram(true);
+    try {
+      await onSendTelegram(signal);
+    } finally {
+      setIsSendingTelegram(false);
+    }
+  };
 
   const isLong = signal.direction === 'LONG';
   const candles = signal.candles.slice(-45); // Last 45 candles
@@ -168,6 +185,27 @@ plot(show_fib ? hi_fib + (fib_range * 0.618) : na, "Fib 1.618 Golden Extension",
               {copiedPine ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Code2 className="w-3.5 h-3.5 text-amber-400" />}
               <span>{copiedPine ? 'تم نسخ Pine Script!' : 'كود TradingView'}</span>
             </button>
+            {onSendTelegram && (
+              <button
+                onClick={handleSendTelegram}
+                disabled={isSendingTelegram || signal.isConfirmed === false}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-sm ${
+                  signal.isConfirmed === false
+                    ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700/60'
+                    : 'bg-sky-500 hover:bg-sky-400 text-neutral-950 disabled:opacity-50'
+                }`}
+                title={signal.isConfirmed === false ? 'الصفقة غير مؤكدة - لا يمكن إرسالها للبوت' : 'إرسال التوصية ومستويات الفيبوناتشي مباشرة إلى بوت تيليجرام'}
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {signal.isConfirmed === false
+                    ? 'غير مؤكدة (محظورة)'
+                    : isSendingTelegram
+                    ? 'جاري الإرسال...'
+                    : 'إرسال للبوت 🚀'}
+                </span>
+              </button>
+            )}
             <button
               onClick={handleCopy}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition-colors border border-neutral-700"
@@ -186,6 +224,88 @@ plot(show_fib ? hi_fib + (fib_range * 0.618) : na, "Fib 1.618 Golden Extension",
 
         {/* Modal Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
+
+          {/* CRITICAL SAFETY WARNING FOR UNCONFIRMED PAIRS */}
+          {signal.isConfirmed === false && (
+            <div className="bg-rose-950/40 border-2 border-rose-500/70 rounded-2xl p-4 sm:p-5 text-xs space-y-3 shadow-lg animate-in fade-in">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400 shrink-0">
+                  <AlertOctagon className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-black tracking-wider uppercase bg-rose-500 text-neutral-950">
+                      تنبيه أمان صارم
+                    </span>
+                    <h4 className="text-sm font-bold text-rose-300">
+                      هذا الزوج في حالة "مراقبة غير مؤكدة" - يُمنع الدخول الفعلي في الصفقة!
+                    </h4>
+                  </div>
+                  <p className="text-rose-200/90 leading-relaxed text-xs">
+                    سبب خسارتك في الصفقات غير المؤكدة هو دخول السوق قبل اكتمال شروط الاستراتيجية الرياضية (التضافر Confluence). عند غياب الفوليوم المؤسسي أو تقاطع المتوسطات، يكون السعر في مرحلة تذبذب عرضي أو مصيدة سيولة (Fakeout) تؤدي حتماً لضرب وقف الخسارة.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Breakdown of Technical Conditions */}
+              {signal.checks && (
+                <div className="bg-neutral-950/80 rounded-xl p-3 border border-neutral-800">
+                  <div className="text-[11px] font-bold text-neutral-300 mb-2.5 flex items-center justify-between">
+                    <span>تشخيص حالة الشروط الفنية لهذا الزوج:</span>
+                    <span className="text-[10px] text-neutral-500 font-normal">يجب تحقق جميع الـ 5 شروط مجتمعة</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px]">
+                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${
+                      signal.checks.macroRegimeOk ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                    }`}>
+                      {signal.checks.macroRegimeOk ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      <span>توافق اتجاه البيتكوين (BTC Macro)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${
+                      signal.checks.emaCross ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                    }`}>
+                      {signal.checks.emaCross ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      <span>تقاطع المتوسطات السريعة (EMA 5/15)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${
+                      signal.checks.trendBaselineOk ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                    }`}>
+                      {signal.checks.trendBaselineOk ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      <span>خط الاتجاه الأساسي (EMA 50)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${
+                      signal.checks.volumeExplosion ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                    }`}>
+                      {signal.checks.volumeExplosion ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      <span>انفجار الفوليوم المؤسسي (&gt; 1.20x)</span>
+                    </div>
+
+                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${
+                      signal.checks.rsiHealthy ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                    }`}>
+                      {signal.checks.rsiHealthy ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
+                      <span>نطاق زخم RSI المعتدل</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Specific Reasons why it failed */}
+              {signal.unconfirmedReasons && signal.unconfirmedReasons.length > 0 && (
+                <div className="bg-rose-950/20 rounded-lg p-2.5 border border-rose-900/40 text-[11px] text-rose-300/90 space-y-1">
+                  <span className="font-bold">أسباب عدم التأكيد في الشمعة الحالية:</span>
+                  <ul className="list-disc list-inside space-y-0.5 text-rose-200/80 mr-2">
+                    {signal.unconfirmedReasons.map((reason, idx) => (
+                      <li key={idx}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Target Levels Summary Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -502,21 +622,21 @@ plot(show_fib ? hi_fib + (fib_range * 0.618) : na, "Fib 1.618 Golden Extension",
               {showEma && (
                 <>
                   <path
-                    d={ema50.map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
+                    d={ema50.map((p: number, i: number) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
                     fill="none"
                     stroke="#3b82f6"
                     strokeWidth="1.2"
                     opacity="0.8"
                   />
                   <path
-                    d={ema15.map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
+                    d={ema15.map((p: number, i: number) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
                     fill="none"
                     stroke="#f97316"
                     strokeWidth="1.3"
                     opacity="0.85"
                   />
                   <path
-                    d={ema5.map((p, i) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
+                    d={ema5.map((p: number, i: number) => `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${getY(p)}`).join(' ')}
                     fill="none"
                     stroke="#facc15"
                     strokeWidth="1.6"
@@ -586,7 +706,7 @@ plot(show_fib ? hi_fib + (fib_range * 0.618) : na, "Fib 1.618 Golden Extension",
 
               {/* Volume SMA 20 curve */}
               <path
-                d={volSma20.map((v, i) => {
+                d={volSma20.map((v: number, i: number) => {
                   const barHeight = (v / maxVolume) * (volHeight - 15);
                   const y = totalSvgHeight - barHeight;
                   return `${i === 0 ? 'M' : 'L'} ${i * candleWidth + candleWidth / 2} ${y}`;
