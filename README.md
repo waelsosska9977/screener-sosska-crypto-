@@ -1,11 +1,60 @@
-<div align="center">
+# ماسح الصفقات الكمي واستراتيجية SOSSKA1 + Auto Fibonacci
+## Binance Quantitative Futures Scanner & Strategy Generator
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+منصة تداول كمي متكاملة ومجهزة للرفع المباشر على **Vercel** بنقرة واحدة، تدعم تحليل أزواج منصة بينانس مع رسم مستويات فيبوناتشي التلقائية، واقتناص الصفقات الحية، وتحديد مناطق البيع والشراء بدقة.
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 🚀 التوافق مع Vercel (100% متوافق وجاهز للنشر)
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+المشروع مبني بتقنيات **Vite + React + TypeScript + Tailwind CSS** وتم تجهيز ملف الإعدادات `vercel.json` تلقائياً لضمان:
+1. **توجيه الروابط (SPA Rewrites):** منع أخطاء 404 عند تحديث الصفحة أو التنقل.
+2. **بروكسي بيانات بينانس (API Rewrites):** تخطي أي حجب جغرافي أو مشاكل CORS للأسعار اللحظية.
+3. **أقصى سرعة وأداء:** بناء فائق السرعة عبر شبكة Vercel Edge العالمية.
 
-</div>
+---
+
+## 🛠 خطوات الرفع على Vercel بالتفصيل:
+
+### الطريقة الأولى: الرفع عبر GitHub (الأسهل والأفضل للتحديثات التلقائية)
+1. قم برفع هذا المجلد إلى مستودع جديد على حسابك في **GitHub**:
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit - SOSSKA1 Binance Scanner"
+   git branch -M main
+   git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
+   git push -u origin main
+   ```
+2. ادخل إلى موقع [Vercel](https://vercel.com) وسجّل الدخول بحساب GitHub.
+3. اضغط على **"Add New..."** ثم اختر **"Project"**.
+4. اختر المستودع الخاص بك واضغط **"Import"**.
+5. ستتعرف Vercel تلقائياً على الإعدادات:
+   - **Framework Preset:** `Vite`
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+6. اضغط **"Deploy"**، وخلال أقل من دقيقة ستحصل على رابط مباشر وسريع جداً لموقعك (مثل `https://your-app.vercel.app`)!
+
+---
+
+### الطريقة الثانية: الرفع المباشر عبر Vercel CLI (بدون GitHub)
+1. قم بتثبيت أداة Vercel عبر الطرفية:
+   ```bash
+   npm i -g vercel
+   ```
+2. في مجلد المشروع، اكتب الأمر:
+   ```bash
+   vercel
+   ```
+3. اتبع التعليمات السريعة (اضغط Enter للموافقة على الإعدادات التلقائية)، وسيتم رفع الموقع فوراً.
+
+---
+
+## ✨ المميزات الرئيسية للمنصة:
+- 📊 **تحليل ضلع الفيبوناتشي التلقائي (Auto Fibonacci):** احتساب مستويات (0.618 الذهبي، 0.500، 0.382، 0.786، 0.886، والامتدادات 1.272 و 1.618).
+- 🟢 **تحديد مناطق الشراء:** مناطق القنص الذهبية OTE ومناطق الزخم وكسر المقاومة.
+- 🔴 **تحديد مناطق البيع:** مستويات جني الأرباح (TP1, TP2, TP3) ومناطق العرض والارتداد الهابط.
+- ⚡ **أسعار لحظية دقيقة 100%:** اتصال مباشر بمزود Binance Vision و Binance Public API دون تأخير.
+- 🛡 **إدارة مخاطر ديناميكية:** احتساب وقف الخسارة والأهداف بدلالة ATR الحقيقي ونسب العائد للمخاطرة (R:R).
+- 📲 **تنبيهات تيليجرام مهيئة:** نسخ ومشاركة إشارات التداول بضغطة زر بصيغة Markdown جاهزة لقنوات الـ VIP.
+- 🐍 **محرك بايثون متكامل:** كود بايثون متقدم وموزون (Vectorized) جاهز للتشغيل المحلي أو عبر سيرفر VPS.

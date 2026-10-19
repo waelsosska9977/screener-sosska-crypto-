@@ -1,0 +1,16 @@
+[Unit]
+Description=SOSSKA1 Binance Futures Breakout Scanner Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sosska1-scanner
+ExecStart=/opt/sosska1-scanner/venv/bin/python /opt/sosska1-scanner/sosska1_scanner.py
+Restart=always
+RestartSec=30
+StandardOutput=append:/var/log/sosska1-scanner.log
+StandardError=append:/var/log/sosska1-scanner-error.log
+
+[Install]
+WantedBy=multi-user.target

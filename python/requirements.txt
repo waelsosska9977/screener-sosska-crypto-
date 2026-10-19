@@ -1,0 +1,6 @@
+# Production requirements for Binance Quant Breakout Scanner
+ccxt>=4.2.0
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+python-dotenv>=1.0.0
