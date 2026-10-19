@@ -78,8 +78,8 @@ CONFIG = {
     "BINANCE_SECRET_KEY": os.getenv("BINANCE_SECRET_KEY", ""),
 
     # Telegram Credentials
-    "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
-    "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
+    "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", "8763950020:AAHwxNoRNjdyKzr-EqbrpOlJ2ixaQqiQD_4"),
+    "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", "1076270331"),
 
     # Strategy Parameters
     "TIMEFRAME": "15m",
@@ -199,45 +199,29 @@ class TelegramNotifier:
             return False
 
     def build_signal_message(self, sig: Dict[str, Any]) -> str:
-        """Constructs an actionable trading message with Auto Fibonacci and Buy/Sell Zones."""
+        """Constructs a clean, simple, and ultra-readable trading message."""
         direction = sig["direction"]
         is_long = direction == "LONG"
-        badge = "🟢 *تنبيه صفقة شراء (LONG)* 🚀" if is_long else "🔴 *تنبيه صفقة بيع (SHORT)* 🔻"
-        arrow = "▲ صاعد" if is_long else "▼ هابط"
-        rr1 = round(CONFIG["ATR_TP1_MULT"] / CONFIG["ATR_SL_MULT"], 2)
-        rr2 = round(CONFIG["ATR_TP2_MULT"] / CONFIG["ATR_SL_MULT"], 2)
+        badge = "🟢 *توصية شراء (LONG)* 🚀" if is_long else "🔴 *توصية بيع (SHORT)* 🔻"
+        sl_pct_str = f"{sig['sl_pct']:+.2f}%"
+        tp1_pct_str = f"{sig['tp1_pct']:+.2f}%"
+        tp2_pct_str = f"{sig['tp2_pct']:+.2f}%"
 
         fib = sig.get("fibonacci", {})
+        fib_618 = fib.get("fib_618")
+        fib_str = f" | ★ الفيبو (0.618): `{fmt_price(fib_618)}`" if fib_618 else ""
 
         lines = [
             f"{badge}",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "⚡ *الاستراتيجية:* SOSSKA1 + Auto Fibonacci Engine",
-            f"💎 *الزوج:* {sig['clean_symbol']} (Binance Futures)",
-            f"⏱ *الإطار الزمني:* {sig['timeframe']}",
-            f"💰 *سعر الدخول (Entry):* {fmt_price(sig['entry'])}\n",
-            f"🛡 *إدارة المخاطر (Dynamic ATR {CONFIG['ATR_PERIOD']}):*",
-            f"🛑 *وقف الخسارة (SL):* {fmt_price(sig['sl'])} ({sig['sl_pct']:+.2f}%)",
-            f"🎯 *الهدف الأول (TP1):* {fmt_price(sig['tp1'])} ({sig['tp1_pct']:+.2f}% | R:R 1:{rr1})",
-            f"🏆 *الهدف الثاني (TP2):* {fmt_price(sig['tp2'])} ({sig['tp2_pct']:+.2f}% | R:R 1:{rr2})\n",
-            "📐 *تحليل ضلع الفيبوناتشي (20 شمعة) ومناطق البيع/الشراء:*",
-            f"• *قمة الضلع (High):* {fmt_price(fib.get('swing_high', 0))}",
-            f"• *قاع الضلع (Low):* {fmt_price(fib.get('swing_low', 0))}",
-            f"• *★ النسبة الذهبية (Fib 0.618):* {fmt_price(fib.get('fib_618', 0))}",
-            f"• *نقطة التوازن (Fib 0.500):* {fmt_price(fib.get('fib_500', 0))}",
-            f"• *مستوى المقاومة (Fib 0.382):* {fmt_price(fib.get('fib_382', 0))}",
-            f"• *الامتداد الذهبي (Fib 1.618 Golden Ext):* {fmt_price(fib.get('fib_ext1618', 0))}\n",
-            "🎯 *توجيه مناطق الدخول والخروج:*",
-            f"🟢 *منطقة الشراء:* {fib.get('buy_zone_desc', 'ارتداد النسبة الذهبية OTE')}",
-            f"🔴 *مناطق البيع وجني الربح:* {fib.get('sell_zone_desc', 'قمة الضلع ثم امتداد 1.618')}\n",
-            "📊 *الشروط الفنية المكتملة:*",
-            f"• *المتوسطات:* تقاطع {arrow} EMA(5) مع EMA(15) وتأكيد EMA(50) ✅",
-            f"• *انفجار الفوليوم:* {sig['vol_ratio']:.2f}x ضعف متوسط 20 شمعة (المطلوب >= 1.4x) ✅",
-            f"• *مؤشر القوة (RSI):* {sig['rsi']:.1f} (المجال المطلوب: {sig['rsi_range']}) ✅",
-            f"• *نظام السوق الكلي:* البيتكوين {sig['macro_status']} (BTC ${sig['btc_price']:,.1f} vs EMA100 ${sig['btc_ema']:,.1f}) ✅\n",
-            f"🕒 *التوقيت:* {sig['timestamp']} UTC",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "⚠️ *تذكير:* التزم بحجم العقد المناسب للمخاطرة (1-2% كحد أقصى من رأس المال)."
+            f"💎 *العملة:* `{sig['clean_symbol']}` (Binance Futures)",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"💰 *سعر الدخول (Entry):* `{fmt_price(sig['entry'])}`",
+            f"🛑 *وقف الخسارة (Stop Loss):* `{fmt_price(sig['sl'])}` ({sl_pct_str})",
+            f"🎯 *الهدف الأول (Take Profit 1):* `{fmt_price(sig['tp1'])}` ({tp1_pct_str})",
+            f"🏆 *الهدف الثاني (Take Profit 2):* `{fmt_price(sig['tp2'])}` ({tp2_pct_str})",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"⏱ *الفريم:* `{sig['timeframe']}`{fib_str}",
+            "⚡ *إشارة مؤكدة تلقائياً عبر ماسح SOSSKA1*"
         ]
         return "\n".join(lines)
 

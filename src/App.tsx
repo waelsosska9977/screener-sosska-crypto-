@@ -12,7 +12,8 @@ import {
 import { PYTHON_FILES } from './services/pythonScripts';
 import { 
   sendSignalToTelegram, 
-  isSignalInTelegramCooldown 
+  isSignalInTelegramCooldown,
+  buildSignalMarkdown 
 } from './services/telegramService';
 import { Header } from './components/Header';
 import { LiveScannerView } from './components/LiveScannerView';
@@ -43,15 +44,25 @@ export default function App() {
   const [telegramConfig, setTelegramConfig] = useState<TelegramConfig>(() => {
     try {
       const saved = localStorage.getItem('sosska1_telegram_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.botToken && parsed.chatId) return parsed;
+      }
     } catch {}
     return {
-      botToken: '',
-      chatId: '',
+      botToken: '8763950020:AAHwxNoRNjdyKzr-EqbrpOlJ2ixaQqiQD_4',
+      chatId: '1076270331',
       autoSendSignals: true,
       soundAlerts: true
     };
   });
+
+  // Ensure persistent storage of user credentials
+  useEffect(() => {
+    try {
+      localStorage.setItem('sosska1_telegram_config', JSON.stringify(telegramConfig));
+    } catch {}
+  }, [telegramConfig]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -176,52 +187,9 @@ export default function App() {
   };
 
   const handleCopyTelegramAlert = (sig: BreakoutSignal) => {
-    const isLong = sig.direction === 'LONG';
-    const badge = isLong ? '🟢 *تنبيه صفقة شراء (LONG)* 🚀' : '🔴 *تنبيه صفقة بيع (SHORT)* 🔻';
-    const arrow = isLong ? '▲ صاعد' : '▼ هابط';
-    const rr1 = roundNum(DEFAULT_CONFIG.atrTp1Mult / DEFAULT_CONFIG.atrSlMult, 2);
-    const rr2 = roundNum(DEFAULT_CONFIG.atrTp2Mult / DEFAULT_CONFIG.atrSlMult, 2);
-    const fib = sig.fibonacci;
-
-    const fibSection = fib ? `
-📐 *تحليل ضلع الفيبوناتشي (20 شمعة) ومناطق البيع/الشراء:*
-• *قمة الضلع (High):* \`${formatPrice(fib.swingHigh)}\`
-• *قاع الضلع (Low):* \`${formatPrice(fib.swingLow)}\`
-• *★ النسبة الذهبية (Fib 0.618):* \`${formatPrice(fib.fib618)}\`
-• *نقطة التوازن (Fib 0.500):* \`${formatPrice(fib.fib500)}\`
-• *مستوى المقاومة (Fib 0.382):* \`${formatPrice(fib.fib382)}\`
-• *الامتداد الذهبي (Fib 1.618 Ext):* \`${formatPrice(fib.fibExt1618)}\`
-
-🎯 *توجيه مناطق الدخول والخروج:*
-🟢 *منطقة الشراء:* ${fib.buyZone.label} (${formatPrice(fib.buyZone.min)} - ${formatPrice(fib.buyZone.max)})
-🔴 *مناطق البيع وجني الربح:* ${fib.sellZone.label} (TP1: ${formatPrice(fib.sellZone.tp1)} | TP2: ${formatPrice(fib.sellZone.tp2)} | TP3: ${formatPrice(fib.sellZone.tp3)})
-` : '';
-
-    const text = 
-`${badge}
-━━━━━━━━━━━━━━━━━━━━━━
-⚡ *الاستراتيجية:* \`SOSSKA1 + Auto Fibonacci Engine\`
-💎 *الزوج:* \`${sig.cleanSymbol}\` (Binance Futures)
-⏱ *الإطار الزمني:* \`${sig.timeframe}\`
-💰 *سعر الدخول (Entry):* \`${formatPrice(sig.entry)}\`
-
-🛡 *إدارة المخاطر (Dynamic ATR 14):*
-🛑 *وقف الخسارة (SL):* \`${formatPrice(sig.stopLoss)}\` \`(${sig.slPct > 0 ? '+' : ''}${sig.slPct.toFixed(2)}%)\`
-🎯 *الهدف الأول (TP1):* \`${formatPrice(sig.tp1)}\` \`(${sig.tp1Pct > 0 ? '+' : ''}${sig.tp1Pct.toFixed(2)}% | R:R 1:${rr1})\`
-🏆 *الهدف الثاني (TP2):* \`${formatPrice(sig.tp2)}\` \`(${sig.tp2Pct > 0 ? '+' : ''}${sig.tp2Pct.toFixed(2)}% | R:R 1:${rr2})\`
-${fibSection}
-📊 *الشروط الفنية المكتملة:*
-• *المتوسطات:* تقاطع ${arrow} \`EMA(5)\` مع \`EMA(15)\` وتأكيد \`EMA(50)\` ✅
-• *انفجار الفوليوم:* \`${sig.volRatio.toFixed(2)}x\` ضعف متوسط 20 شمعة ✅
-• *مؤشر القوة (RSI):* \`${sig.rsi.toFixed(1)}\` (المجال المطلوب: ${sig.rsiRange}) ✅
-• *نظام السوق الكلي:* البيتكوين \`${sig.macroStatus}\` ✅
-
-🕒 *التوقيت:* \`${sig.timestamp}\` UTC
-━━━━━━━━━━━━━━━━━━━━━━
-⚠️ *تذكير:* التزم بحجم العقد المناسب للمخاطرة (1-2% كحد أقصى من رأس المال).`;
-
+    const text = buildSignalMarkdown(sig);
     navigator.clipboard.writeText(text);
-    showToast(`تم نسخ تنبيه ${sig.cleanSymbol} بصيغة Markdown مع مستويات فيبوناتشي`);
+    showToast(`تم نسخ بيانات صفقة ${sig.cleanSymbol} (سعر الدخول، وقف الخسارة، والتيك بروفيت)`);
   };
 
   return (

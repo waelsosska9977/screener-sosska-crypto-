@@ -31,54 +31,27 @@ export function clearTelegramCooldowns() {
 }
 
 /**
- * Format a breakout signal into a rich, beautiful Telegram Markdown alert
+ * Format a breakout signal into a clean, simple, and ultra-readable alert
+ * Focused directly on: Entry Price, Stop Loss, and Take Profit targets.
  */
 export function buildSignalMarkdown(sig: BreakoutSignal): string {
   const isLong = sig.direction === 'LONG';
-  const badge = isLong ? '🟢 *تنبيه صفقة شراء (LONG)* 🚀' : '🔴 *تنبيه صفقة بيع (SHORT)* 🔻';
-  const arrow = isLong ? '▲ صاعد' : '▼ هابط';
-  const rr1 = sig.riskReward1 || 1.39;
-  const rr2 = sig.riskReward2 || 2.78;
-  const fib = sig.fibonacci;
-
-  let fibSection = '';
-  if (fib) {
-    fibSection = `
-📐 *تحليل ضلع الفيبوناتشي (20 شمعة) ومناطق البيع/الشراء:*
-• *قمة الضلع (Swing High):* \`${formatPrice(fib.swingHigh)}\`
-• *قاع الضلع (Swing Low):* \`${formatPrice(fib.swingLow)}\`
-• *★ النسبة الذهبية (Fib 0.618):* \`${formatPrice(fib.fib618)}\`
-• *نقطة التوازن (Fib 0.500):* \`${formatPrice(fib.fib500)}\`
-• *مستوى الدعم/المقاومة (Fib 0.382):* \`${formatPrice(fib.fib382)}\`
-• *الامتداد الذهبي (Fib 1.618 Ext):* \`${formatPrice(fib.fibExt1618)}\`
-
-🎯 *توجيه مناطق الدخول والخروج:*
-🟢 *منطقة الشراء:* ${fib.buyZone.label} (\`${formatPrice(fib.buyZone.min)}\` - \`${formatPrice(fib.buyZone.max)}\`)
-🔴 *مناطق البيع وجني الربح:* ${fib.sellZone.label} (\`${formatPrice(fib.sellZone.tp1)}\` | \`${formatPrice(fib.sellZone.tp2)}\` | \`${formatPrice(fib.sellZone.tp3)}\`)
-`;
-  }
+  const badge = isLong ? '🟢 *توصية شراء (LONG)* 🚀' : '🔴 *توصية بيع (SHORT)* 🔻';
+  const slPctStr = sig.slPct > 0 ? `+${sig.slPct.toFixed(2)}%` : `${sig.slPct.toFixed(2)}%`;
+  const tp1PctStr = sig.tp1Pct > 0 ? `+${sig.tp1Pct.toFixed(2)}%` : `${sig.tp1Pct.toFixed(2)}%`;
+  const tp2PctStr = sig.tp2Pct > 0 ? `+${sig.tp2Pct.toFixed(2)}%` : `${sig.tp2Pct.toFixed(2)}%`;
+  const fibStr = sig.fibonacci ? ` | ★ الفيبو (0.618): \`${formatPrice(sig.fibonacci.fib618)}\`` : '';
 
   return `${badge}
-━━━━━━━━━━━━━━━━━━━━━━
-⚡ *الاستراتيجية:* \`SOSSKA1 + Auto Fibonacci Engine\`
-💎 *الزوج:* \`${sig.cleanSymbol}\` (Binance Futures)
-⏱ *الإطار الزمني:* \`${sig.timeframe}\`
+💎 *العملة:* \`${sig.cleanSymbol}USDT\` (Binance Futures)
+━━━━━━━━━━━━━━━━━━━━
 💰 *سعر الدخول (Entry):* \`${formatPrice(sig.entry)}\`
-
-🛡 *إدارة المخاطر (Dynamic ATR 14):*
-🛑 *وقف الخسارة (SL):* \`${formatPrice(sig.stopLoss)}\` \`(${sig.slPct > 0 ? '+' : ''}${sig.slPct.toFixed(2)}%)\`
-🎯 *الهدف الأول (TP1):* \`${formatPrice(sig.tp1)}\` \`(${sig.tp1Pct > 0 ? '+' : ''}${sig.tp1Pct.toFixed(2)}% | R:R 1:${rr1})\`
-🏆 *الهدف الثاني (TP2):* \`${formatPrice(sig.tp2)}\` \`(${sig.tp2Pct > 0 ? '+' : ''}${sig.tp2Pct.toFixed(2)}% | R:R 1:${rr2})\`
-${fibSection}
-📊 *الشروط الفنية المكتملة:*
-• *المتوسطات:* تقاطع ${arrow} \`EMA(5)\` مع \`EMA(15)\` وتأكيد \`EMA(50)\` ✅
-• *انفجار الفوليوم:* \`${sig.volRatio.toFixed(2)}x\` ضعف متوسط 20 شمعة ✅
-• *مؤشر القوة (RSI):* \`${sig.rsi.toFixed(1)}\` (المجال: ${sig.rsiRange}) ✅
-• *نظام السوق الكلي:* \`${sig.macroStatus || 'مؤكد'}\` ✅
-
-🕒 *التوقيت:* \`${sig.timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19)}\` UTC
-━━━━━━━━━━━━━━━━━━━━━━
-⚠️ *إدارة رأس المال:* لا تخاطر بأكثر من 1-2% من محفظتك في الصفقة الواحدة.`;
+🛑 *وقف الخسارة (Stop Loss):* \`${formatPrice(sig.stopLoss)}\` (${slPctStr})
+🎯 *الهدف الأول (Take Profit 1):* \`${formatPrice(sig.tp1)}\` (${tp1PctStr})
+🏆 *الهدف الثاني (Take Profit 2):* \`${formatPrice(sig.tp2)}\` (${tp2PctStr})
+━━━━━━━━━━━━━━━━━━━━
+⏱ *الفريم:* \`${sig.timeframe || '15m'}\`${fibStr}
+⚡ *إشارة مؤكدة تلقائياً عبر ماسح SOSSKA1*`;
 }
 
 /**
